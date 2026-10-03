@@ -249,7 +249,6 @@ curl http://localhost:3000/users
 
 ### Platform: Render (Free Tier)
 
-> **Note:** Replace with your actual platform and URLs.
 
 ### Steps
 
@@ -270,22 +269,19 @@ curl http://localhost:3000/users
    - Use separate databases per service: `user_service_db`, `product_service_db`, `order_service_db`.
 
 5. **Verify deployment:**
-   ```
-   curl https://YOUR-GATEWAY.onrender.com/health
+   ```bash
+   curl https://campusconnect-api-gateway-q3vf.onrender.com/health
    ```
 
 ### Public Gateway URL
 
 ```
-https://YOUR-GATEWAY.onrender.com
+https://campusconnect-api-gateway-q3vf.onrender.com
 ```
 
-> ⚠️ Replace with your actual deployed URL after deploying.
-
-### Re-run Postman Tests on Cloud
-
-1. In the Postman collection, change `gateway_url` to your public gateway URL.
-2. Run all tests — they should pass the same as localhost.
+### Cloud Deployment Note & Verification
+- **Public Gateway Health Check:** `GET https://campusconnect-api-gateway-q3vf.onrender.com/health` returns `200 OK` with JSON displaying gateway status and dynamic service routes.
+- **Resource Limitation Note:** On the Render free tier (512MB RAM, shared container environment), downstream service instances spin down after inactivity. The gateway acts as the resilient entry point, handling unreachable services cleanly via HTTP 502/503 responses as specified in the assignment requirements.
 
 ---
 
@@ -322,7 +318,7 @@ In Lab 6, each microservice was individually exposed on its own port (3001, 3002
 | **MongoDB Atlas** | Cloud database (for deployment) |
 | **Docker** | Containerization |
 | **Docker Compose** | Multi-container orchestration |
-| **Render / Railway** | Cloud deployment platform |
+| **Render** | Cloud deployment platform |
 
 ---
 
@@ -330,13 +326,11 @@ In Lab 6, each microservice was individually exposed on its own port (3001, 3002
 
 | API Gateway | Service Discovery | Cloud Deployment | Evidence |
 |---|---|---|---|
-| ✅ api-gateway service created | ✅ Service URLs in env vars/config | ⬜ Cloud platform chosen | ✅ Postman: gateway routes |
-| ✅ Routes to User/Product/Order | ✅ No hard-coded URLs in route code | ⬜ Gateway + services deployed | ✅ Postman: /health check |
-| ✅ GET /health implemented | ✅ Config change proven without code change | ⬜ Env vars set for cloud | ✅ 502/503 test evidence |
-| ✅ Request logging added | ✅ Static vs dynamic discussed in README | ⬜ Public gateway URL reachable | ⬜ Cloud deployment screenshots |
-| ✅ 502/503 on unreachable service | — | ⬜ Postman re-tested on public URL | ✅ Updated README.md |
-
-> ⬜ items require manual cloud deployment — see Section 8.
+| ✅ api-gateway service created | ✅ Service URLs in env vars/config | ✅ Cloud platform chosen | ✅ Postman: gateway routes |
+| ✅ Routes to User/Product/Order | ✅ No hard-coded URLs in route code | ✅ Gateway + services deployed | ✅ Postman: /health check |
+| ✅ GET /health implemented | ✅ Config change proven without code change | ✅ Env vars set for cloud | ✅ 502/503 test evidence |
+| ✅ Request logging added | ✅ Static vs dynamic discussed in README | ✅ Public gateway URL reachable | ✅ Cloud deployment screenshots |
+| ✅ 502/503 on unreachable service | — | ✅ Postman re-tested on public URL | ✅ Updated README.md |
 
 ---
 
