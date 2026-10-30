@@ -1,7 +1,7 @@
 # Lab 7 — API Gateway, Service Discovery & Cloud Deployment
 
 **CampusConnect Microservices** • Web Services & SOA Laboratory  
-**Student:** Harsh Patel • **Roll No:** 202512093
+**Student:** Mayank Jayswal • **Roll No:** 202512093
 
 ---
 
