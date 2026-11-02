@@ -126,7 +126,7 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"name\": \"Harsh Patel\",\n  \"email\": \"harsh.lab7@campusconnect.edu\",\n  \"role\": \"student\",\n  \"department\": \"Computer Science\"\n}"
+              "raw": "{\n  \"name\": \"Mayank Jayswal\",\n  \"email\": \"harsh.lab7@campusconnect.edu\",\n  \"role\": \"student\",\n  \"department\": \"Computer Science\"\n}"
             },
             "url": {
               "raw": "{{gateway_url}}/users",
@@ -146,7 +146,7 @@
                   "pm.test('User created via gateway', function () {",
                   "    pm.response.to.have.status(201);",
                   "    const json = pm.response.json();",
-                  "    pm.expect(json.name).to.eql('Harsh Patel');",
+                  "    pm.expect(json.name).to.eql('Mayank Jayswal');",
                   "    pm.collectionVariables.set('user_id', json._id || json.id);",
                   "});"
                 ],
@@ -208,7 +208,7 @@
                 "exec": [
                   "pm.test('User fetched via gateway', function () {",
                   "    pm.response.to.have.status(200);",
-                  "    pm.expect(pm.response.json().name).to.eql('Harsh Patel');",
+                  "    pm.expect(pm.response.json().name).to.eql('Mayank Jayswal');",
                   "});"
                 ],
                 "type": "text/javascript"

@@ -1,7 +1,7 @@
 # Lab 8 — Kubernetes, CI/CD & Monitoring
 
 **CampusConnect Microservices** • Web Services & SOA Laboratory  
-**Student:** Harsh Patel • **Roll No:** 202512093
+**Student:** Mayank Jayswal • **Roll No:** 202512093
 
 ---
 
