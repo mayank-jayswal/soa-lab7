@@ -3,15 +3,62 @@ const express = require("express");
 const cors = require("cors");
 const morgan = require("morgan");
 const { createProxyMiddleware } = require("http-proxy-middleware");
+const client = require("prom-client");
 const { getRoutes, printRegistry } = require("./config/serviceRegistry");
 
 const app = express();
 const PORT = process.env.PORT || process.env.GATEWAY_PORT || 3000;
 
 // =========================================================================
+// Prometheus Monitoring (Lab 8)
+// =========================================================================
+client.collectDefaultMetrics({ prefix: "gateway_" });
+
+const httpRequestsTotal = new client.Counter({
+  name: "http_requests_total",
+  help: "Total number of HTTP requests processed by API Gateway",
+  labelNames: ["method", "route", "status_code"],
+});
+
+const httpRequestDuration = new client.Histogram({
+  name: "http_request_duration_seconds",
+  help: "Histogram of HTTP request durations in seconds",
+  labelNames: ["method", "route", "status_code"],
+  buckets: [0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5],
+});
+
+// =========================================================================
 // Middlewares
 // =========================================================================
 app.use(cors());
+
+// Prometheus Metrics Middleware
+app.use((req, res, next) => {
+  if (req.path === "/metrics" || req.path === "/health") return next();
+
+  const start = process.hrtime();
+  res.on("finish", () => {
+    const diff = process.hrtime(start);
+    const durationInSeconds = diff[0] + diff[1] / 1e9;
+    const route = req.baseUrl || req.path.split("/")[1] ? `/${req.path.split("/")[1]}` : "/";
+
+    httpRequestsTotal.inc({
+      method: req.method,
+      route,
+      status_code: res.statusCode,
+    });
+
+    httpRequestDuration.observe(
+      {
+        method: req.method,
+        route,
+        status_code: res.statusCode,
+      },
+      durationInSeconds
+    );
+  });
+  next();
+});
 
 // Request logging — logs method, path, status, and response time
 app.use(
@@ -39,6 +86,18 @@ app.get("/health", (_req, res) => {
       service: r.serviceName,
     })),
   });
+});
+
+// =========================================================================
+// Prometheus Scrape Endpoint (GET /metrics)
+// =========================================================================
+app.get("/metrics", async (_req, res) => {
+  try {
+    res.set("Content-Type", client.register.contentType);
+    res.end(await client.register.metrics());
+  } catch (err) {
+    res.status(500).end(err.message);
+  }
 });
 
 // =========================================================================

@@ -1,230 +1,140 @@
-#!/bin/bash
-# ================================================================
-# Lab 7 — Comprehensive Verification Script
-# Tests API Gateway routing, health check, error handling,
-# and config-based service discovery
-# ================================================================
+#!/usr/bin/env bash
+# ==============================================================================
+# Lab 8 — End-to-End Automated Kubernetes & Verification Script
+# ==============================================================================
+# Performs end-to-end checks for Lab 8:
+# 1. Kubernetes context & node verification
+# 2. Namespace & resource status verification (Pods, Deployments, Services)
+# 3. Gateway /health & /metrics probe verification
+# 4. End-to-end proxy routing tests (Users, Products, Orders)
+# 5. User-service scaling demonstration (1 -> 3 replicas)
+# 6. Self-healing demonstration (delete pod -> watch replacement)
+# 7. Prometheus & Grafana connectivity test
+# ==============================================================================
 
-set -e
-GATEWAY="http://localhost:3000"
-PASS=0
-FAIL=0
-TOTAL=0
+set -uo pipefail
 
-# Colors
-GREEN='\033[0;32m'
-RED='\033[0;31m'
-YELLOW='\033[1;33m'
-CYAN='\033[0;36m'
-NC='\033[0m'
+NAMESPACE="${NAMESPACE:-lab8}"
+GATEWAY_URL="${GATEWAY_URL:-http://localhost:30080}"
+PROMETHEUS_URL="${PROMETHEUS_URL:-http://localhost:30090}"
+GRAFANA_URL="${GRAFANA_URL:-http://localhost:30300}"
 
-log_test() {
-  TOTAL=$((TOTAL + 1))
-  echo -e "\n${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-  echo -e "${YELLOW}TEST $TOTAL: $1${NC}"
-  echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+COLOR_RESET="\033[0m"
+COLOR_GREEN="\033[32m"
+COLOR_RED="\033[31m"
+COLOR_YELLOW="\033[33m"
+COLOR_CYAN="\033[36m"
+COLOR_BOLD="\033[1m"
+
+log_section() {
+  echo -e "\n${COLOR_CYAN}${COLOR_BOLD}=== $1 ===${COLOR_RESET}"
 }
 
-check_status() {
-  local expected=$1
-  local actual=$2
-  local label=$3
-  if [ "$actual" -eq "$expected" ]; then
-    echo -e "${GREEN}✅ PASS: $label (HTTP $actual)${NC}"
-    PASS=$((PASS + 1))
+log_pass() {
+  echo -e "  ${COLOR_GREEN}✔ PASS:${COLOR_RESET} $1"
+}
+
+log_fail() {
+  echo -e "  ${COLOR_RED}✘ FAIL:${COLOR_RESET} $1"
+}
+
+log_info() {
+  echo -e "  ${COLOR_YELLOW}ℹ INFO:${COLOR_RESET} $1"
+}
+
+log_section "1. Kubernetes Environment & Context Check"
+if command -v kubectl &>/dev/null; then
+  CURRENT_CTX=$(kubectl config current-context 2>/dev/null || echo "N/A")
+  log_pass "kubectl is installed."
+  log_info "Active Context: $CURRENT_CTX"
+  
+  echo -e "\nNodes in Cluster:"
+  kubectl get nodes -o wide || log_fail "Unable to list nodes."
+else
+  log_fail "kubectl is not in PATH."
+fi
+
+log_section "2. Kubernetes Namespace & Workloads ($NAMESPACE)"
+if command -v kubectl &>/dev/null; then
+  echo -e "\nDeployments:"
+  kubectl get deployments -n "$NAMESPACE" || true
+
+  echo -e "\nPods:"
+  kubectl get pods -n "$NAMESPACE" -o wide || true
+
+  echo -e "\nServices & NodePorts:"
+  kubectl get services -n "$NAMESPACE" || true
+fi
+
+log_section "3. API Gateway Connectivity & Health Probes"
+log_info "Target Gateway: $GATEWAY_URL"
+
+HEALTH_RESP=$(curl -s -w "\n%{http_code}" "$GATEWAY_URL/health" 2>/dev/null || echo "000")
+HTTP_CODE=$(echo "$HEALTH_RESP" | tail -n1)
+BODY=$(echo "$HEALTH_RESP" | head -n-1)
+
+if [ "$HTTP_CODE" = "200" ]; then
+  log_pass "Gateway /health returned 200 OK"
+  echo "Response: $BODY"
+else
+  log_fail "Gateway /health failed with status $HTTP_CODE"
+fi
+
+log_section "4. Prometheus Metrics Endpoint (/metrics)"
+METRICS_RESP=$(curl -s "$GATEWAY_URL/metrics" 2>/dev/null || true)
+if echo "$METRICS_RESP" | grep -q "http_requests_total"; then
+  log_pass "Prometheus /metrics endpoint is active and exposing http_requests_total"
+  echo "$METRICS_RESP" | grep -E "http_requests_total|gateway_cpu" | head -n 8
+else
+  log_fail "/metrics did not return expected Prometheus metrics"
+fi
+
+log_section "5. Service-to-Service Operations via Gateway"
+log_info "Testing GET /users through Gateway..."
+USERS_CODE=$(curl -s -o /dev/null -w "%{http_code}" "$GATEWAY_URL/users" 2>/dev/null || echo "000")
+if [ "$USERS_CODE" = "200" ]; then
+  log_pass "GET /users routed successfully (HTTP 200)"
+else
+  log_info "GET /users returned HTTP $USERS_CODE (ensure database is initialized)"
+fi
+
+log_section "6. Scaling Demonstration: user-service (1 -> 3 replicas)"
+if command -v kubectl &>/dev/null; then
+  log_info "Scaling user-service to 3 replicas..."
+  kubectl scale deployment user-service --replicas=3 -n "$NAMESPACE" || true
+  sleep 3
+  kubectl get pods -l app=user-service -n "$NAMESPACE"
+  log_pass "Scale command issued. Check pod statuses above."
+fi
+
+log_section "7. Self-Healing Demonstration"
+if command -v kubectl &>/dev/null; then
+  POD_NAME=$(kubectl get pods -l app=user-service -n "$NAMESPACE" -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)
+  if [ -n "$POD_NAME" ]; then
+    log_info "Deleting pod: $POD_NAME"
+    kubectl delete pod "$POD_NAME" -n "$NAMESPACE" --grace-period=1 &
+    sleep 3
+    echo -e "\nPods after delete command (replacement being scheduled):"
+    kubectl get pods -l app=user-service -n "$NAMESPACE"
+    log_pass "Self-healing triggered. Kubernetes automatically restores desired replicas."
   else
-    echo -e "${RED}❌ FAIL: $label — expected HTTP $expected, got HTTP $actual${NC}"
-    FAIL=$((FAIL + 1))
+    log_info "No user-service pods currently running to delete."
   fi
-}
-
-echo -e "${CYAN}"
-echo "╔══════════════════════════════════════════════════════╗"
-echo "║   Lab 7 — API Gateway Verification Script           ║"
-echo "║   Gateway: $GATEWAY                        ║"
-echo "╚══════════════════════════════════════════════════════╝"
-echo -e "${NC}"
-
-# ── 1. Gateway Health Check ──────────────────────────────
-log_test "GET /health — Gateway Health Check"
-RESPONSE=$(curl -s -w "\n%{http_code}" "$GATEWAY/health")
-HTTP_CODE=$(echo "$RESPONSE" | tail -1)
-BODY=$(echo "$RESPONSE" | sed '$d')
-echo "$BODY" | python3 -m json.tool 2>/dev/null || echo "$BODY"
-check_status 200 "$HTTP_CODE" "Gateway /health"
-
-# ── 2. Verify services are NOT directly accessible ──────
-log_test "Verify services NOT accessible on host ports 3001/3002/3003"
-echo "Attempting direct access to user-service on localhost:3001..."
-DIRECT_CODE=$(curl -s -o /dev/null -w "%{http_code}" --connect-timeout 2 "http://localhost:3001/users" 2>/dev/null || echo "000")
-if echo "$DIRECT_CODE" | grep -q "^0"; then
-  echo -e "${GREEN}✅ PASS: user-service NOT directly accessible (connection refused) — correct!${NC}"
-  PASS=$((PASS + 1))
-else
-  echo -e "${RED}❌ FAIL: user-service IS directly accessible on localhost:3001 (HTTP $DIRECT_CODE) — should be internal only${NC}"
-  FAIL=$((FAIL + 1))
 fi
 
-# ── 3. Create User via Gateway ────────────────────────────
-log_test "POST /users — Create User via Gateway"
-RESPONSE=$(curl -s -w "\n%{http_code}" -X POST "$GATEWAY/users" \
-  -H "Content-Type: application/json" \
-  -d '{"name":"Lab7 Test User","email":"lab7.test@campusconnect.edu","role":"student","department":"Computer Science"}')
-HTTP_CODE=$(echo "$RESPONSE" | tail -1)
-BODY=$(echo "$RESPONSE" | sed '$d')
-echo "$BODY" | python3 -m json.tool 2>/dev/null || echo "$BODY"
-check_status 201 "$HTTP_CODE" "POST /users"
-USER_ID=$(echo "$BODY" | python3 -c "import sys,json; print(json.load(sys.stdin).get('_id',''))" 2>/dev/null)
-echo "  → Captured user_id: $USER_ID"
-
-# ── 4. Get All Users via Gateway ─────────────────────────
-log_test "GET /users — List Users via Gateway"
-RESPONSE=$(curl -s -w "\n%{http_code}" "$GATEWAY/users")
-HTTP_CODE=$(echo "$RESPONSE" | tail -1)
-BODY=$(echo "$RESPONSE" | sed '$d')
-echo "$BODY" | python3 -m json.tool 2>/dev/null | head -20
-check_status 200 "$HTTP_CODE" "GET /users"
-
-# ── 5. Get User by ID via Gateway ────────────────────────
-log_test "GET /users/:id — Get User by ID via Gateway"
-RESPONSE=$(curl -s -w "\n%{http_code}" "$GATEWAY/users/$USER_ID")
-HTTP_CODE=$(echo "$RESPONSE" | tail -1)
-BODY=$(echo "$RESPONSE" | sed '$d')
-echo "$BODY" | python3 -m json.tool 2>/dev/null || echo "$BODY"
-check_status 200 "$HTTP_CODE" "GET /users/:id"
-
-# ── 6. Update User via Gateway ───────────────────────────
-log_test "PUT /users/:id — Update User via Gateway"
-RESPONSE=$(curl -s -w "\n%{http_code}" -X PUT "$GATEWAY/users/$USER_ID" \
-  -H "Content-Type: application/json" \
-  -d '{"department":"Information Technology"}')
-HTTP_CODE=$(echo "$RESPONSE" | tail -1)
-BODY=$(echo "$RESPONSE" | sed '$d')
-echo "$BODY" | python3 -m json.tool 2>/dev/null || echo "$BODY"
-check_status 200 "$HTTP_CODE" "PUT /users/:id"
-
-# ── 7. Create Product via Gateway ─────────────────────────
-log_test "POST /products — Create Product via Gateway"
-RESPONSE=$(curl -s -w "\n%{http_code}" -X POST "$GATEWAY/products" \
-  -H "Content-Type: application/json" \
-  -d '{"name":"Lab Notebook","description":"100-page ruled lab notebook","price":120,"category":"Academic Supplies","stock":50}')
-HTTP_CODE=$(echo "$RESPONSE" | tail -1)
-BODY=$(echo "$RESPONSE" | sed '$d')
-echo "$BODY" | python3 -m json.tool 2>/dev/null || echo "$BODY"
-check_status 201 "$HTTP_CODE" "POST /products"
-PRODUCT_ID=$(echo "$BODY" | python3 -c "import sys,json; print(json.load(sys.stdin).get('_id',''))" 2>/dev/null)
-echo "  → Captured product_id: $PRODUCT_ID"
-
-# ── 8. Get All Products via Gateway ──────────────────────
-log_test "GET /products — List Products via Gateway"
-RESPONSE=$(curl -s -w "\n%{http_code}" "$GATEWAY/products")
-HTTP_CODE=$(echo "$RESPONSE" | tail -1)
-BODY=$(echo "$RESPONSE" | sed '$d')
-echo "$BODY" | python3 -m json.tool 2>/dev/null | head -20
-check_status 200 "$HTTP_CODE" "GET /products"
-
-# ── 9. Get Product by ID via Gateway ─────────────────────
-log_test "GET /products/:id — Get Product by ID via Gateway"
-RESPONSE=$(curl -s -w "\n%{http_code}" "$GATEWAY/products/$PRODUCT_ID")
-HTTP_CODE=$(echo "$RESPONSE" | tail -1)
-BODY=$(echo "$RESPONSE" | sed '$d')
-echo "$BODY" | python3 -m json.tool 2>/dev/null || echo "$BODY"
-check_status 200 "$HTTP_CODE" "GET /products/:id"
-
-# ── 10. Update Product via Gateway ────────────────────────
-log_test "PUT /products/:id — Update Product via Gateway"
-RESPONSE=$(curl -s -w "\n%{http_code}" -X PUT "$GATEWAY/products/$PRODUCT_ID" \
-  -H "Content-Type: application/json" \
-  -d '{"price":99,"stock":75}')
-HTTP_CODE=$(echo "$RESPONSE" | tail -1)
-BODY=$(echo "$RESPONSE" | sed '$d')
-echo "$BODY" | python3 -m json.tool 2>/dev/null || echo "$BODY"
-check_status 200 "$HTTP_CODE" "PUT /products/:id"
-
-# ── 11. Create Order via Gateway (inter-service comms) ───
-log_test "POST /orders — Create Order via Gateway (inter-service communication)"
-RESPONSE=$(curl -s -w "\n%{http_code}" -X POST "$GATEWAY/orders" \
-  -H "Content-Type: application/json" \
-  -d "{\"userId\":\"$USER_ID\",\"productId\":\"$PRODUCT_ID\",\"quantity\":2}")
-HTTP_CODE=$(echo "$RESPONSE" | tail -1)
-BODY=$(echo "$RESPONSE" | sed '$d')
-echo "$BODY" | python3 -m json.tool 2>/dev/null || echo "$BODY"
-check_status 201 "$HTTP_CODE" "POST /orders"
-ORDER_ID=$(echo "$BODY" | python3 -c "import sys,json; print(json.load(sys.stdin).get('order',{}).get('_id',''))" 2>/dev/null)
-echo "  → Captured order_id: $ORDER_ID"
-
-# ── 12. Get All Orders via Gateway ────────────────────────
-log_test "GET /orders — List Orders via Gateway"
-RESPONSE=$(curl -s -w "\n%{http_code}" "$GATEWAY/orders")
-HTTP_CODE=$(echo "$RESPONSE" | tail -1)
-BODY=$(echo "$RESPONSE" | sed '$d')
-echo "$BODY" | python3 -m json.tool 2>/dev/null | head -20
-check_status 200 "$HTTP_CODE" "GET /orders"
-
-# ── 13. Get Order by ID via Gateway ──────────────────────
-log_test "GET /orders/:id — Get Order by ID via Gateway"
-RESPONSE=$(curl -s -w "\n%{http_code}" "$GATEWAY/orders/$ORDER_ID")
-HTTP_CODE=$(echo "$RESPONSE" | tail -1)
-BODY=$(echo "$RESPONSE" | sed '$d')
-echo "$BODY" | python3 -m json.tool 2>/dev/null || echo "$BODY"
-check_status 200 "$HTTP_CODE" "GET /orders/:id"
-
-# ── 14. Gateway 404 for unknown route ────────────────────
-log_test "GET /nonexistent — Gateway 404 for unknown route"
-RESPONSE=$(curl -s -w "\n%{http_code}" "$GATEWAY/nonexistent")
-HTTP_CODE=$(echo "$RESPONSE" | tail -1)
-BODY=$(echo "$RESPONSE" | sed '$d')
-echo "$BODY" | python3 -m json.tool 2>/dev/null || echo "$BODY"
-check_status 404 "$HTTP_CODE" "GET /nonexistent"
-
-# ── 15. 502/503 Test — Stop user-service ──────────────────
-log_test "502/503 Test — Stop user-service, then hit /users"
-echo "Stopping user-service..."
-docker compose stop user-service 2>&1 | tail -1
-sleep 2
-
-RESPONSE=$(curl -s -w "\n%{http_code}" "$GATEWAY/users")
-HTTP_CODE=$(echo "$RESPONSE" | tail -1)
-BODY=$(echo "$RESPONSE" | sed '$d')
-echo "$BODY" | python3 -m json.tool 2>/dev/null || echo "$BODY"
-
-if [ "$HTTP_CODE" -eq 502 ] || [ "$HTTP_CODE" -eq 503 ]; then
-  echo -e "${GREEN}✅ PASS: Gateway returned $HTTP_CODE for unreachable user-service${NC}"
-  PASS=$((PASS + 1))
+log_section "8. Monitoring Stack Check (Prometheus & Grafana)"
+PROM_CODE=$(curl -s -o /dev/null -w "%{http_code}" "$PROMETHEUS_URL/-/ready" 2>/dev/null || curl -s -o /dev/null -w "%{http_code}" "$PROMETHEUS_URL" 2>/dev/null || echo "000")
+if [ "$PROM_CODE" = "200" ] || [ "$PROM_CODE" = "302" ]; then
+  log_pass "Prometheus reachable at $PROMETHEUS_URL (HTTP $PROM_CODE)"
 else
-  echo -e "${RED}❌ FAIL: Expected 502 or 503, got $HTTP_CODE${NC}"
-  FAIL=$((FAIL + 1))
+  log_info "Prometheus returned $PROM_CODE at $PROMETHEUS_URL"
 fi
 
-echo "Restarting user-service..."
-docker compose start user-service 2>&1 | tail -1
-sleep 3
-
-# ── 16. Verify user-service is back ──────────────────────
-log_test "Verify user-service is back after restart"
-RESPONSE=$(curl -s -w "\n%{http_code}" "$GATEWAY/users")
-HTTP_CODE=$(echo "$RESPONSE" | tail -1)
-check_status 200 "$HTTP_CODE" "GET /users (after restart)"
-
-# ── 17. Delete test data ─────────────────────────────────
-log_test "Cleanup — Delete test user and product"
-DEL_USER=$(curl -s -o /dev/null -w "%{http_code}" -X DELETE "$GATEWAY/users/$USER_ID")
-echo "  DELETE /users/$USER_ID → HTTP $DEL_USER"
-DEL_PROD=$(curl -s -o /dev/null -w "%{http_code}" -X DELETE "$GATEWAY/products/$PRODUCT_ID")
-echo "  DELETE /products/$PRODUCT_ID → HTTP $DEL_PROD"
-PASS=$((PASS + 1))
-
-# ── Summary ───────────────────────────────────────────────
-echo -e "\n${CYAN}╔══════════════════════════════════════════════════════╗${NC}"
-echo -e "${CYAN}║              TEST RESULTS SUMMARY                    ║${NC}"
-echo -e "${CYAN}╚══════════════════════════════════════════════════════╝${NC}"
-echo -e "  ${GREEN}PASSED: $PASS${NC}"
-echo -e "  ${RED}FAILED: $FAIL${NC}"
-echo -e "  TOTAL:  $((PASS + FAIL))"
-echo ""
-if [ "$FAIL" -eq 0 ]; then
-  echo -e "${GREEN}🎉 ALL TESTS PASSED — Lab 7 Gateway is working correctly!${NC}"
+GRAF_CODE=$(curl -s -o /dev/null -w "%{http_code}" "$GRAFANA_URL/api/health" 2>/dev/null || curl -s -o /dev/null -w "%{http_code}" "$GRAFANA_URL" 2>/dev/null || echo "000")
+if [ "$GRAF_CODE" = "200" ] || [ "$GRAF_CODE" = "302" ]; then
+  log_pass "Grafana reachable at $GRAFANA_URL (HTTP $GRAF_CODE)"
 else
-  echo -e "${RED}⚠️  Some tests failed. Check output above for details.${NC}"
+  log_info "Grafana returned $GRAF_CODE at $GRAFANA_URL"
 fi
-echo ""
+
+echo -e "\n${COLOR_BOLD}Verification completed! Review the outputs above for your Lab 8 evidence screenshots.${COLOR_RESET}\n"

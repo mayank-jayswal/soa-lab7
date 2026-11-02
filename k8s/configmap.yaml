@@ -1,0 +1,18 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: app-config
+  namespace: lab8
+  labels:
+    app.kubernetes.io/part-of: campusconnect
+data:
+  NODE_ENV: "production"
+  PORT: "3000"
+  GATEWAY_PORT: "3000"
+  USER_SERVICE_PORT: "3001"
+  PRODUCT_SERVICE_PORT: "3002"
+  ORDER_SERVICE_PORT: "3003"
+  # Service Discovery using Kubernetes DNS
+  USER_SERVICE_URL: "http://user-service:3001"
+  PRODUCT_SERVICE_URL: "http://product-service:3002"
+  ORDER_SERVICE_URL: "http://order-service:3003"

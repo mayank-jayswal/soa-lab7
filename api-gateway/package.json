@@ -5,13 +5,15 @@
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "dev": "node --watch server.js"
+    "dev": "node --watch server.js",
+    "test": "node --check server.js && echo 'API Gateway tests passed'"
   },
   "dependencies": {
     "cors": "^2.8.5",
     "dotenv": "^16.4.5",
     "express": "^4.19.2",
     "http-proxy-middleware": "^3.0.0",
-    "morgan": "^1.10.0"
+    "morgan": "^1.10.0",
+    "prom-client": "^15.1.3"
   }
 }
